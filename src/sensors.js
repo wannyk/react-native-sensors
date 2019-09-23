@@ -1,7 +1,14 @@
-import { DeviceEventEmitter } from "react-native";
+import { NativeEventEmitter, NativeModules } from "react-native";
 import { Observable } from "rxjs";
 import { publish, refCount } from "rxjs/operators";
 import * as RNSensors from "./rnsensors";
+
+const {
+  Gyroscope: GyroNative,
+  Accelerometer: AccNative,
+  Magnetometer: MagnNative,
+  Barometer: BarNative
+} = NativeModules;
 
 const listenerKeys = new Map([
   ["accelerometer", "Accelerometer"],
@@ -10,23 +17,44 @@ const listenerKeys = new Map([
   ["barometer", "Barometer"]
 ]);
 
+const nativeApis = new Map([
+  ["accelerometer", AccNative],
+  ["gyroscope", GyroNative],
+  ["magnetometer", MagnNative],
+  ["barometer", BarNative]
+]);
+
+const eventEmitterSubsciption = new Map([
+  ["accelerometer", null],
+  ["gyroscope", null],
+  ["magnetometer", null],
+  ["barometer", null]
+]);
+
 function createSensorObservable(sensorType) {
   return Observable.create(function subscribe(observer) {
     this.isSensorAvailable = false;
 
     this.unsubscribeCallback = () => {
       if (!this.isSensorAvailable) return;
+      if (eventEmitterSubsciption.get(sensorType))
+        eventEmitterSubsciption.get(sensorType).remove();
       // stop the sensor
       RNSensors.stop(sensorType);
     };
 
     RNSensors.isAvailable(sensorType).then(
       () => {
-        DeviceEventEmitter.addListener(listenerKeys.get(sensorType), data => {
-          observer.next(data);
-        });
-
         this.isSensorAvailable = true;
+
+        const emitter = new NativeEventEmitter(nativeApis.get(sensorType));
+
+        eventEmitterSubsciption.set(
+          sensorType,
+          emitter.addListener(listenerKeys.get(sensorType), data => {
+            observer.next(data);
+          })
+        );
 
         // Start the sensor manager
         RNSensors.start(sensorType);
